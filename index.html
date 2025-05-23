@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<title>2D 휴머노이드 로봇 조작기 (관절 제한 없음)</title>
+<style>
+  body {
+    margin:0; background:#222; display:flex; justify-content:center; align-items:center; height:100vh;
+    user-select:none;
+  }
+  canvas {
+    background:#eee; border-radius:12px; cursor:pointer;
+  }
+</style>
+</head>
+<body>
+<canvas id="canvas" width="600" height="600"></canvas>
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+const baseX = 300;
+const baseY = 400;
+
+const joints = {
+  leftShoulder: 0,
+  leftElbow: Math.PI / 4,
+  rightShoulder: 0,
+  rightElbow: Math.PI / 4,
+  leftHip: 0,
+  leftKnee: Math.PI / 4,
+  rightHip: 0,
+  rightKnee: Math.PI / 4,
+};
+
+const lengths = {
+  upperArm: 70,
+  lowerArm: 60,
+  upperLeg: 80,
+  lowerLeg: 70,
+};
+
+let draggingJoint = null;
+let dragBaseX = 0;
+let dragBaseY = 0;
+let dragBaseAngle = 0;
+
+function drawRobot() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.save();
+  ctx.translate(baseX, baseY);
+
+  // 몸통
+  ctx.fillStyle = '#0055aa';
+  ctx.shadowColor = '#000a';
+  ctx.shadowBlur = 15;
+  ctx.fillRect(-30, -140, 60, 140);
+
+  // 목
+  ctx.fillStyle = '#003366';
+  ctx.fillRect(-8, -160, 16, 20);
+
+  // 머리
+  ctx.fillStyle = '#0077cc';
+  ctx.shadowColor = '#000d';
+  ctx.shadowBlur = 20;
+  ctx.beginPath();
+  ctx.arc(0, -180, 35, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 왼쪽 팔
+  drawArm(-30, -130, joints.leftShoulder, joints.leftElbow);
+
+  // 오른쪽 팔
+  drawArm(30, -130, joints.rightShoulder, joints.rightElbow);
+
+  // 왼쪽 다리
+  drawLeg(-20, 0, joints.leftHip, joints.leftKnee);
+
+  // 오른쪽 다리
+  drawLeg(20, 0, joints.rightHip, joints.rightKnee);
+
+  // 관절 원 그리기
+  drawJointCircle(-30, -130); // 왼쪽 어깨
+  drawJointCircle(
+    -30 + Math.sin(joints.leftShoulder) * lengths.upperArm,
+    -130 + Math.cos(joints.leftShoulder) * lengths.upperArm
+  ); // 왼쪽 팔꿈치
+
+  drawJointCircle(30, -130); // 오른쪽 어깨
+  drawJointCircle(
+    30 + Math.sin(joints.rightShoulder) * lengths.upperArm,
+    -130 + Math.cos(joints.rightShoulder) * lengths.upperArm
+  ); // 오른쪽 팔꿈치
+
+  drawJointCircle(-20, 0); // 왼쪽 엉덩이
+  drawJointCircle(
+    -20 + Math.sin(joints.leftHip) * lengths.upperLeg,
+    0 + Math.cos(joints.leftHip) * lengths.upperLeg
+  ); // 왼쪽 무릎
+
+  drawJointCircle(20, 0); // 오른쪽 엉덩이
+  drawJointCircle(
+    20 + Math.sin(joints.rightHip) * lengths.upperLeg,
+    0 + Math.cos(joints.rightHip) * lengths.upperLeg
+  ); // 오른쪽 무릎
+
+  ctx.restore();
+}
+
+function drawArm(baseX, baseY, shoulderAngle, elbowAngle) {
+  ctx.save();
+  ctx.translate(baseX, baseY);
+  ctx.rotate(shoulderAngle);
+
+  // 상완
+  ctx.fillStyle = '#0077ee';
+  ctx.shadowColor = '#0008';
+  ctx.shadowBlur = 12;
+  ctx.fillRect(-12, 0, 24, lengths.upperArm);
+
+  // 팔꿈치 위치로 이동
+  ctx.translate(0, lengths.upperArm);
+  ctx.rotate(elbowAngle);
+
+  // 하완
+  ctx.fillStyle = '#004499';
+  ctx.fillRect(-10, 0, 20, lengths.lowerArm);
+
+  ctx.restore();
+}
+
+function drawLeg(baseX, baseY, hipAngle, kneeAngle) {
+  ctx.save();
+  ctx.translate(baseX, baseY);
+  ctx.rotate(hipAngle);
+
+  // 대퇴부
+  ctx.fillStyle = '#0066bb';
+  ctx.shadowColor = '#0008';
+  ctx.shadowBlur = 12;
+  ctx.fillRect(-15, 0, 30, lengths.upperLeg);
+
+  // 무릎 위치로 이동
+  ctx.translate(0, lengths.upperLeg);
+  ctx.rotate(kneeAngle);
+
+  // 하퇴부
+  ctx.fillStyle = '#003366';
+  ctx.fillRect(-14, 0, 28, lengths.lowerLeg);
+
+  ctx.restore();
+}
+
+function drawJointCircle(x, y) {
+  ctx.beginPath();
+  ctx.fillStyle = '#ff5555cc';
+  ctx.shadowColor = '#000a';
+  ctx.shadowBlur = 8;
+  ctx.arc(x, y, 15, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function getMousePos(evt) {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: evt.clientX - rect.left,
+    y: evt.clientY - rect.top
+  };
+}
+
+function distance(p1, p2) {
+  return Math.sqrt((p1.x - p2.x) ** 2 + (p1.y - p2.y) ** 2);
+}
+
+function findJointUnderMouse(pos) {
+  const jointsPositions = {
+    leftShoulder: {x: baseX - 30, y: baseY - 130},
+    leftElbow: {
+      x: baseX - 30 + Math.sin(joints.leftShoulder) * lengths.upperArm,
+      y: baseY - 130 + Math.cos(joints.leftShoulder) * lengths.upperArm
+    },
+    rightShoulder: {x: baseX + 30, y: baseY - 130},
+    rightElbow: {
+      x: baseX + 30 + Math.sin(joints.rightShoulder) * lengths.upperArm,
+      y: baseY - 130 + Math.cos(joints.rightShoulder) * lengths.upperArm
+    },
+    leftHip: {x: baseX - 20, y: baseY},
+    leftKnee: {
+      x: baseX - 20 + Math.sin(joints.leftHip) * lengths.upperLeg,
+      y: baseY + Math.cos(joints.leftHip) * lengths.upperLeg
+    },
+    rightHip: {x: baseX + 20, y: baseY},
+    rightKnee: {
+      x: baseX + 20 + Math.sin(joints.rightHip) * lengths.upperLeg,
+      y: baseY + Math.cos(joints.rightHip) * lengths.upperLeg
+    },
+  };
+
+  for (const [joint, posJ] of Object.entries(jointsPositions)) {
+    if (distance(pos, posJ) < 20) return joint;
+  }
+  return null;
+}
+
+canvas.addEventListener('mousedown', (evt) => {
+  const pos = getMousePos(evt);
+  const joint = findJointUnderMouse(pos);
+  if (joint) {
+    draggingJoint = joint;
+
+    if (joint === 'leftElbow') {
+      dragBaseX = baseX - 30 + Math.sin(joints.leftShoulder) * lengths.upperArm;
+      dragBaseY = baseY - 130 + Math.cos(joints.leftShoulder) * lengths.upperArm;
+      dragBaseAngle = joints.leftShoulder;
+    } else if (joint === 'rightElbow') {
+      dragBaseX = baseX + 30 + Math.sin(joints.rightShoulder) * lengths.upperArm;
+      dragBaseY = baseY - 130 + Math.cos(joints.rightShoulder) * lengths.upperArm;
+      dragBaseAngle = joints.rightShoulder;
+    } else if (joint === 'leftKnee') {
+      dragBaseX = baseX - 20 + Math.sin(joints.leftHip) * lengths.upperLeg;
+      dragBaseY = baseY + Math.cos(joints.leftHip) * lengths.upperLeg;
+      dragBaseAngle = joints.leftHip;
+    } else if (joint === 'rightKnee') {
+      dragBaseX = baseX + 20 + Math.sin(joints.rightHip) * lengths.upperLeg;
+      dragBaseY = baseY + Math.cos(joints.rightHip) * lengths.upperLeg;
+      dragBaseAngle = joints.rightHip;
+    } else if (joint === 'leftShoulder') {
+      dragBaseX = baseX - 30;
+      dragBaseY = baseY - 130;
+      dragBaseAngle = joints.leftShoulder;
+    } else if (joint === 'rightShoulder') {
+      dragBaseX = baseX + 30;
+      dragBaseY = baseY - 130;
+      dragBaseAngle = joints.rightShoulder;
+    } else if (joint === 'leftHip') {
+      dragBaseX = baseX - 20;
+      dragBaseY = baseY;
+      dragBaseAngle = joints.leftHip;
+    } else if (joint === 'rightHip') {
+      dragBaseX = baseX + 20;
+      dragBaseY = baseY;
+      dragBaseAngle = joints.rightHip;
+    }
+  }
+});
+
+canvas.addEventListener('mousemove', (evt) => {
+  if (!draggingJoint) return;
+  const pos = getMousePos(evt);
+  const dx = pos.x - dragBaseX;
+  const dy = pos.y - dragBaseY;
+  let angle = Math.atan2(dy, dx);
+
+  if (draggingJoint === 'leftElbow') {
+    joints.leftElbow = angle - dragBaseAngle;
+  } else if (draggingJoint === 'rightElbow') {
+    joints.rightElbow = angle - dragBaseAngle;
+  } else if (draggingJoint === 'leftKnee') {
+    joints.leftKnee = angle - dragBaseAngle;
+  } else if (draggingJoint === 'rightKnee') {
+    joints.rightKnee = angle - dragBaseAngle;
+  } else {
+    joints[draggingJoint] = angle;
+  }
+  drawRobot();
+});
+
+canvas.addEventListener('mouseup', () => {
+  draggingJoint = null;
+});
+
+canvas.addEventListener('mouseleave', () => {
+  draggingJoint = null;
+});
+
+// 초기 그리기
+drawRobot();
+</script>
+</body>
+</html>
